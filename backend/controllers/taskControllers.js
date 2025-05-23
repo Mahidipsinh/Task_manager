@@ -218,26 +218,165 @@ export const updateTaskStatus = async (req, res) => {
 };
 
 
-export const updateTaskChecklist=async(req,res)=>{
+export const updateTaskChecklist = async (req, res) => {
     try {
+        const task = await Task.findById(req.params.id);
+
+        if (!task) {
+            return res.status(404).json({ message: "Task not found" });
+        }
+
+        const isAssigned = task.assignedTo.some(
+            (userId) => userId.toString() === req.user._id.toString()
+        );
+
+        if (!isAssigned && req.user.role !== "admin") {
+            return res.status(403).json({ message: "Not authorized" });
+        }
+
+        const { todoChecklist } = req.body;
         
+        if (!Array.isArray(todoChecklist)) {
+            return res.status(400).json({ message: "todoChecklist must be an array" });
+        }
+
+        task.todoChecklist = todoChecklist;
+        
+        // Calculate progress based on completed checklist items
+        const completedCount = todoChecklist.filter(item => item.completed).length;
+        task.progress = todoChecklist.length > 0 
+            ? Math.round((completedCount / todoChecklist.length) * 100) 
+            : 0;
+
+        await task.save();
+
+        res.json({
+            message: "Task checklist updated successfully",
+            task
+        });
     } catch (error) {
-      res.status(500).json({message:"server error",error:error.message});
+        res.status(500).json({ message: "server error", error: error.message });
     }
 }
 
-export const getDashboardData=async(req,res)=>{
+export const getDashboardData = async (req, res) => {
     try {
+        // Get total tasks count
+        const totalTasks = await Task.countDocuments();
         
+        // Get tasks by priority
+        const highPriorityTasks = await Task.countDocuments({ priority: "High" });
+        const mediumPriorityTasks = await Task.countDocuments({ priority: "Medium" });
+        const lowPriorityTasks = await Task.countDocuments({ priority: "Low" });
+        
+        // Get tasks by status
+        const pendingTasks = await Task.countDocuments({ status: "Pending" });
+        const inProgressTasks = await Task.countDocuments({ status: "In progress" });
+        const completedTasks = await Task.countDocuments({ status: "Completed" });
+        
+        // Get tasks due today
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        
+        const tasksDueToday = await Task.countDocuments({
+            dueDate: {
+                $gte: today,
+                $lt: tomorrow
+            }
+        });
+        
+        // Get overdue tasks
+        const overdueTasks = await Task.countDocuments({
+            dueDate: { $lt: today },
+            status: { $ne: "Completed" }
+        });
+
+        res.json({
+            summary: {
+                totalTasks,
+                byPriority: {
+                    high: highPriorityTasks,
+                    medium: mediumPriorityTasks,
+                    low: lowPriorityTasks
+                },
+                byStatus: {
+                    pending: pendingTasks,
+                    inProgress: inProgressTasks,
+                    completed: completedTasks
+                },
+                tasksDueToday,
+                overdueTasks
+            }
+        });
     } catch (error) {
-      res.status(500).json({message:"server error",error:error.message});
+        res.status(500).json({ message: "server error", error: error.message });
     }
 }
 
-export const getUserDashboardData=async(req,res)=>{
+export const getUserDashboardData = async (req, res) => {
     try {
+        const userId = req.user._id;
         
+        // Get user's tasks count
+        const totalTasks = await Task.countDocuments({ assignedTo: userId });
+        
+        // Get user's tasks by status
+        const pendingTasks = await Task.countDocuments({ 
+            assignedTo: userId,
+            status: "Pending"
+        });
+        const inProgressTasks = await Task.countDocuments({ 
+            assignedTo: userId,
+            status: "In progress"
+        });
+        const completedTasks = await Task.countDocuments({ 
+            assignedTo: userId,
+            status: "Completed"
+        });
+        
+        // Get tasks due today
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        
+        const tasksDueToday = await Task.countDocuments({
+            assignedTo: userId,
+            dueDate: {
+                $gte: today,
+                $lt: tomorrow
+            }
+        });
+        
+        // Get overdue tasks
+        const overdueTasks = await Task.countDocuments({
+            assignedTo: userId,
+            dueDate: { $lt: today },
+            status: { $ne: "Completed" }
+        });
+
+        // Get recent tasks
+        const recentTasks = await Task.find({ assignedTo: userId })
+            .sort({ createdAt: -1 })
+            .limit(5)
+            .populate('assignedTo', 'name email profileImageUrl');
+
+        res.json({
+            summary: {
+                totalTasks,
+                byStatus: {
+                    pending: pendingTasks,
+                    inProgress: inProgressTasks,
+                    completed: completedTasks
+                },
+                tasksDueToday,
+                overdueTasks
+            },
+            recentTasks
+        });
     } catch (error) {
-      res.status(500).json({message:"server error",error:error.message});
+        res.status(500).json({ message: "server error", error: error.message });
     }
 }

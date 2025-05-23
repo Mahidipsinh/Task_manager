@@ -6,7 +6,7 @@ const todoSchema = new mongoose.Schema({
     completed: { type: Boolean, default: false },
   });
   
-  const taskSchema = new mongoose.Schema(
+const taskSchema = new mongoose.Schema(
     {
       title: { type: String, required: true },
       description: { type: String },
